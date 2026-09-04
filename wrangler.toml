@@ -1,0 +1,28 @@
+# commandcode-usage — Cloudflare Worker + D1（多账号额度面板）
+#
+# 首次部署最省事：./deploy.sh（自动创建 D1、回填 database_id、部署）
+# 手动部署见 README「部署」一节。
+# 可选：npx wrangler secret put ADMIN_TOKEN  给面板加访问令牌
+
+name = "commandcode-usage"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+# 静态页面：public/ 目录由 wrangler 直接托管，
+# 未命中静态资源的请求（/api/*）落到 worker.js。
+[assets]
+directory = "./public"
+
+# D1：存账号（api_key + 备注 + 缓存的用量数据），支持多账号。
+# database_id 留空由 deploy.sh 回填；手动部署：
+#   npx wrangler d1 create commandcode-usage   # 把输出的 database_id 粘到下面
+[[d1_databases]]
+binding = "DB"
+database_name = "commandcode-usage"
+database_id = ""
+
+# 可选：workers.dev 在部分地区被 DNS 污染时，取消注释并改成你的域名
+#（域名需已接入 Cloudflare）：
+# routes = [
+#   { pattern = "usage.example.com/*", zone_name = "example.com" }
+# ]

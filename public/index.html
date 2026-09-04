@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Command Code 多账号额度面板</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0d1117; color: #c9d1d9;
+    min-height: 100vh; margin: 0; padding: 20px;
+  }
+  .card {
+    background: #161b22; border-radius: 12px;
+    padding: 24px 28px; max-width: 1400px; width: 100%;
+    margin: 0 auto;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; color: #f0f6fc; }
+  .subtitle { font-size: 13px; color: #8b949e; margin-bottom: 20px; }
+  .input-row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .input-row input {
+    flex: 1; padding: 10px 14px; border-radius: 8px;
+    border: 1px solid #30363d; background: #0d1117;
+    color: #c9d1d9; font-size: 14px; outline: none; font-family: monospace;
+  }
+  .input-row input:focus { border-color: #58a6ff; }
+  .input-row input::placeholder { color: #484f58; }
+  .input-row button {
+    padding: 10px 20px; border-radius: 8px; border: none;
+    background: #238636; color: #fff; font-size: 14px; font-weight: 600;
+    cursor: pointer; white-space: nowrap; transition: background .15s;
+  }
+  .input-row button:hover { background: #2ea043; }
+  .input-row button:disabled { background: #23863655; cursor: not-allowed; }
+  .hint { font-size: 12px; color: #484f58; margin-bottom: 16px; }
+
+  .error-msg {
+    background: #3d1519; border: 1px solid #da3633; border-radius: 8px;
+    padding: 10px 14px; font-size: 13px; color: #f85149;
+    margin-bottom: 16px; display: none;
+  }
+  .error-msg.show { display: block; }
+
+  .toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    margin: 4px 0 12px; gap: 8px; flex-wrap: wrap;
+  }
+  .toolbar .count { font-size: 13px; color: #8b949e; }
+  .ghost-btn {
+    padding: 6px 14px; border-radius: 8px; font-size: 12px; cursor: pointer;
+    background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+  }
+  .ghost-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+  .ghost-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .acc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+  }
+  .acc-card {
+    background: #0d1117; border: 1px solid #21262d; border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .acc-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px; gap: 8px;
+  }
+  .acc-title { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+  .acc-label { font-size: 14px; font-weight: 600; color: #f0f6fc; cursor: pointer; }
+  .acc-label:hover { color: #58a6ff; }
+  .badge {
+    display: inline-block; padding: 1px 8px; border-radius: 12px;
+    background: #1f6feb22; border: 1px solid #1f6feb55;
+    font-size: 11px; color: #58a6ff;
+  }
+  .badge.err { background: #3d1519; border-color: #da3633; color: #f85149; }
+  .acc-masked { font-size: 10px; color: #484f58; font-family: monospace; }
+  .acc-actions { display: flex; gap: 4px; }
+  .mini-btn {
+    padding: 2px 8px; border-radius: 6px; font-size: 11px; cursor: pointer;
+    background: #21262d; color: #8b949e; border: 1px solid #30363d;
+  }
+  .mini-btn:hover { color: #c9d1d9; border-color: #484f58; }
+  .mini-btn.danger:hover { color: #f85149; border-color: #da3633; }
+
+  .bal-row {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+    font-size: 11px; color: #8b949e; align-items: center;
+  }
+  .bal-row .bal {
+    background: #161b22; border: 1px solid #21262d; border-radius: 6px;
+    padding: 3px 8px; color: #c9d1d9;
+  }
+  .bal-row .bal b { color: #f0f6fc; font-variant-numeric: tabular-nums; }
+
+  .window { margin-bottom: 10px; }
+  .window:last-child { margin-bottom: 0; }
+  .window-header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 4px;
+  }
+  .window-label { font-size: 12px; font-weight: 600; }
+  .window-pct { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .bar-bg {
+    height: 8px; border-radius: 5px; background: #21262d;
+    overflow: hidden; margin-bottom: 3px;
+  }
+  .bar-fill { height: 100%; border-radius: 5px; transition: width .4s ease; }
+  .window-detail { display: flex; justify-content: space-between; font-size: 11px; color: #8b949e; }
+  .window-detail .left { color: #58a6ff; font-weight: 600; }
+  .window-detail .warn { color: #d29922; font-weight: 600; }
+
+  .acc-foot { font-size: 10px; color: #484f58; margin-top: 8px; }
+  .acc-foot .err { color: #f85149; }
+
+  .empty {
+    text-align: center; color: #484f58; font-size: 13px;
+    padding: 28px 0; border: 1px dashed #21262d; border-radius: 10px;
+  }
+
+  #loginCard .input-row { justify-content: center; }
+
+  .skeleton { border: 1px dashed #21262d; }
+</style>
+</head>
+<body>
+<!-- 登录门：设置了管理密码且未通过时显示，面板整体隐藏 -->
+<div class="card" id="loginCard" style="display:none;max-width:420px;margin-top:12vh;text-align:center">
+  <h1>🔒 面板已加锁</h1>
+  <p class="subtitle">输入管理密码进入</p>
+  <div class="input-row">
+    <input id="loginInput" type="password" placeholder="管理密码" style="text-align:center" />
+    <button id="loginBtn">进入</button>
+  </div>
+  <div id="loginError" class="error-msg"></div>
+</div>
+
+<div class="card" id="app">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start">
+    <div>
+      <h1>Command Code 多账号额度面板</h1>
+      <p class="subtitle">账号存于服务端 D1，随时刷新 5 小时滚动 / 周窗口与信用余额</p>
+    </div>
+    <button class="ghost-btn" id="logoutBtn" style="display:none">退出</button>
+  </div>
+
+  <div class="input-row">
+    <input id="labelInput" type="text" placeholder="备注名（可留空，自动取用户名）" style="max-width:200px;font-family:inherit" />
+    <input id="keyInput" type="password" placeholder="API 密钥（从 commandcode.ai/settings 获取）" />
+    <button id="addBtn">添加</button>
+  </div>
+  <p class="hint">添加时先向上游验证密钥有效性；备注随时可改（点击卡片上的名字）。密钥仅存你自己的 D1。</p>
+
+  <div id="error" class="error-msg"></div>
+
+  <div class="toolbar" id="toolbar" style="display:none">
+    <span class="count" id="accCount"></span>
+    <div style="display:flex;gap:8px">
+      <button class="ghost-btn" id="refreshAllBtn">全部刷新</button>
+    </div>
+  </div>
+
+  <div id="list"></div>
+  <div id="loading" class="empty">加载中 …</div>
+</div>
+
+<script>
+const keyInput = document.getElementById('keyInput');
+const addBtn = document.getElementById('addBtn');
+const errorEl = document.getElementById('error');
+const listEl = document.getElementById('list');
+const loadingEl = document.getElementById('loading');
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---- 管理密码（登录门模式）----
+// 部署方设置了 ADMIN_TOKEN 时：面板隐藏，先过登录门；
+// 密码正确后存 sessionStorage（关标签页即失效，比 localStorage 谨慎）。
+const loginCard = $('loginCard');
+const loginInput = $('loginInput');
+const loginError = $('loginError');
+const appCard = $('app');
+let token = sessionStorage.getItem('ccusage_token') || '';
+
+function showLogin(msg) {
+  loginCard.style.display = 'block';
+  appCard.style.display = 'none';
+  loginInput.focus();
+  if (msg) { loginError.textContent = msg; loginError.classList.add('show'); }
+  else loginError.classList.remove('show');
+}
+
+function showApp() {
+  loginCard.style.display = 'none';
+  appCard.style.display = 'block';
+  $('logoutBtn').style.display = token ? '' : 'none';
+}
+
+async function tryLogin() {
+  const password = loginInput.value;
+  try {
+    const resp = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok) { showLogin('密码不对，请重试。'); return; }
+    // 密码即令牌：后续 API 调用带 X-Admin-Token
+    token = password;
+    sessionStorage.setItem('ccusage_token', token);
+    loginInput.value = '';
+    showApp();
+    loadAccounts();
+  } catch (e) {
+    showLogin('网络错误：' + e.message);
+  }
+}
+
+$('loginBtn').onclick = tryLogin;
+loginInput.addEventListener('keydown', e => { if (e.key === 'Enter') tryLogin(); });
+$('logoutBtn').onclick = () => {
+  sessionStorage.removeItem('ccusage_token');
+  token = '';
+  location.reload();
+};
+
+async function loadAccounts() {
+  loadingEl.style.display = 'block';
+  listEl.innerHTML = '';
+  try {
+    const { accounts } = await api('/api/accounts');
+    showApp(); // 持有的令牌有效：确保面板可见
+    renderList(accounts);
+  } catch (e) {
+    loadingEl.style.display = 'none';
+    if (e.adminRequired) showLogin(token ? '登录已失效，请重新输入密码。' : '');
+    else showError(e.message);
+  }
+}
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+  if (token) headers['X-Admin-Token'] = token;
+  const resp = await fetch(path, Object.assign({}, opts, { headers }));
+  const body = await resp.json().catch(() => ({}));
+  if (resp.status === 401 && body.error === 'admin-required') {
+    const err = new Error(body.message || '需要访问令牌');
+    err.adminRequired = true;
+    throw err;
+  }
+  if (!resp.ok) throw new Error(body.error || ('HTTP ' + resp.status));
+  return body;
+}
+
+function pctColor(p) {
+  if (p >= 90) return '#da3633';
+  if (p >= 75) return '#d29922';
+  if (p >= 50) return '#d29922';
+  return '#3fb950';
+}
+
+function fmtCredits(v) {
+  if (v == null) return '—';
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+function formatDuration(seconds) {
+  if (seconds == null) return '';
+  seconds = Math.max(0, Math.floor(seconds));
+  const d = Math.floor(seconds / 86400); seconds %= 86400;
+  const h = Math.floor(seconds / 3600); seconds %= 3600;
+  const m = Math.floor(seconds / 60);
+  if (d > 0) return `${d}天 ${h}小时`;
+  if (h > 0) return `${h}小时 ${m}分钟`;
+  return `${m}分钟`;
+}
+
+function showError(msg) {
+  errorEl.textContent = msg;
+  errorEl.classList.add('show');
+}
+
+async function addAccount() {
+  clearError();
+  const key = keyInput.value.trim();
+  const label = document.getElementById('labelInput').value.trim();
+  if (!key) { showError('请先填入 API 密钥。'); return; }
+  if (!/^[\x21-\x7e]+$/.test(key)) { showError('密钥格式不对：检测到中文或全角字符，请重新复制粘贴。'); return; }
+  addBtn.disabled = true;
+  try {
+    await api('/api/accounts', { method: 'POST', body: JSON.stringify({ key, label }) });
+    keyInput.value = '';
+    document.getElementById('labelInput').value = '';
+    await loadAccounts();
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    addBtn.disabled = false;
+  }
+}
+
+function clearError() { errorEl.classList.remove('show'); errorEl.textContent = ''; }
+
+function windowHtml(name, label, w) {
+  if (!w || !w.cap) return '';
+  const usedPct = w.cap > 0 ? Math.min(w.used / w.cap * 100, 100) : 0;
+  const leftPct = 100 - usedPct;
+    const resetSec = w.resetAt ? Math.floor((w.resetAt - Date.now()) / 1000) : null;
+    // 上游对未使用的窗口会返回 resetAt=0（无重置点），与"有值但解析失败"区分开
+    const resetText = !w.resetAt
+      ? '暂未使用，无重置点'
+      : resetSec != null ? '重置于 ' + formatDuration(resetSec) + ' 后' : '重置时间未知';
+  return `
+  <div class="window" id="w-${name}">
+    <div class="window-header">
+      <span class="window-label">${label}</span>
+      <span class="window-pct" style="color:${pctColor(usedPct)}">剩余 ${leftPct.toFixed(1)}%</span>
+    </div>
+    <div class="bar-bg"><div class="bar-fill" style="width:${leftPct}%;background:${pctColor(usedPct)}"></div></div>
+    <div class="window-detail">
+      <span>已用 ${fmtCredits(w.used)} / ${fmtCredits(w.cap)}${w.exceeded ? ' <span class="warn">已用满</span>' : ''}</span>
+      <span class="left" style="color:${usedPct >= 90 ? '#da3633' : usedPct >= 75 ? '#d29922' : '#58a6ff'}">剩余 ${fmtCredits(Math.max(w.cap - w.used, 0))}</span>
+    </div>
+    <div class="window-detail" style="margin-top:2px">
+      <span>${resetText}</span>
+    </div>
+  </div>`;
+}
+
+function accountHtml(a) {
+  const planBadge = a.plan && a.plan.name
+    ? `<span class="badge">${esc(a.plan.name)}</span>` : '';
+  const errBadge = a.lastError
+    ? `<span class="badge err" title="${esc(a.lastError)}">上次出错</span>` : '';
+  const c = a.credits || {};
+  const last = a.lastChecked ? new Date(a.lastChecked).toLocaleString('zh-CN') : '从未';
+
+  return `
+  <div class="acc-card" id="acc-${a.id}">
+    <div class="acc-head">
+      <div class="acc-title">
+        <span class="acc-label" title="点击修改备注">${esc(a.label || ('#' + a.id))}</span>
+        ${planBadge}${errBadge}
+        <span class="acc-masked">${esc(a.maskedKey)}</span>
+      </div>
+      <div class="acc-actions">
+        <button class="mini-btn" onclick="refreshOne(${a.id}, this)">刷新</button>
+        <button class="mini-btn danger" onclick="removeAccount(${a.id}, this)">删除</button>
+      </div>
+    </div>
+    <div class="bal-row">
+      <span class="bal">月度剩余 <b>${fmtCredits(c.monthlyCredits)}</b></span>
+      <span class="bal">充值余额 <b>${fmtCredits(c.purchasedCredits)}</b></span>
+      <span class="bal">免费额度 <b>${fmtCredits(c.freeCredits)}</b></span>
+    </div>
+    ${windowHtml('fh-' + a.id, '5 小时滚动', c.fiveHour)}
+    ${windowHtml('wk-' + a.id, '周限额', c.weekly)}
+    <div class="acc-foot">
+      上次刷新: ${last}${a.lastError ? ' · <span class="err">' + esc(a.lastError) + '</span>' : ''}
+    </div>
+  </div>`;
+}
+
+function renderList(accounts) {
+  loadingEl.style.display = 'none';
+  if (!accounts.length) {
+    listEl.innerHTML = '<div class="empty">还没有账号。在上方填入 API 密钥添加第一个。</div>';
+    $('toolbar').style.display = 'none';
+    return;
+  }
+  $('toolbar').style.display = 'flex';
+  const bad = accounts.filter(a => a.lastError).length;
+  $('accCount').textContent = `${accounts.length} 个账号` + (bad ? ` · ${bad} 个上次出错` : '');
+  listEl.innerHTML = '<div class="acc-grid">' + accounts.map(accountHtml).join('') + '</div>';
+}
+
+window.refreshOne = async function(id, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const { accounts } = await api('/api/refresh', { method: 'POST', body: JSON.stringify({ id }) });
+    const a = accounts[0];
+    if (a && a.lastError) showError('#' + id + ' 刷新出错：' + a.lastError);
+    else clearError();
+    // 替换单卡
+    const cur = await api('/api/accounts');
+    renderList(cur.accounts);
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+window.removeAccount = async function(id, btn) {
+  if (!confirm('确定删除该账号？')) return;
+  try {
+    await api('/api/accounts/' + id, { method: 'DELETE' });
+    await loadAccounts();
+  } catch (e) {
+    showError(e.message);
+  }
+};
+
+$('refreshAllBtn').onclick = async function() {
+  this.disabled = true;
+  this.textContent = '刷新中 …';
+  try {
+    const res = await api('/api/refresh', { method: 'POST', body: '{}' });
+    if (res.skipped > 0) showError(`账号过多，仅刷新了前 ${res.accounts.length} 个（子请求上限）`);
+    else clearError();
+    renderList(res.accounts);
+  } catch (e) {
+    if (!e.adminRequired) showError(e.message);
+  } finally {
+    this.disabled = false;
+    this.textContent = '全部刷新';
+  }
+};
+
+// 点击标签改名
+listEl.addEventListener('click', async e => {
+  const label = e.target.closest('.acc-label');
+  if (!label) return;
+  const card = label.closest('.acc-card');
+  const id = Number(card.id.replace('acc-', ''));
+  const name = prompt('修改备注', label.textContent);
+  if (!name || !name.trim()) return;
+  try {
+    await api('/api/accounts/' + id, { method: 'PATCH', body: JSON.stringify({ label: name.trim() }) });
+    const cur = await api('/api/accounts');
+    renderList(cur.accounts);
+  } catch (err) {
+    showError(err.message);
+  }
+});
+
+addBtn.addEventListener('click', addAccount);
+keyInput.addEventListener('keydown', e => { if (e.key === 'Enter') addAccount(); });
+
+// 启动：已持有令牌 → 直接加载；收到 admin-required → 登录门
+loadAccounts();
+</script>
+</body>
+</html>
