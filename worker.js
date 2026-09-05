@@ -293,6 +293,7 @@ function buildDetail(report) {
     creditThreshold: c.creditThreshold ?? null,
     cancelAtPeriodEnd: p.cancelAtPeriodEnd ?? null,
     currentPeriodStart: p.currentPeriodStart ?? null,
+    currentPeriodEnd: p.currentPeriodEnd ?? null,
     pendingPhase: p.pendingPhase ?? null,
   });
 }
@@ -317,7 +318,8 @@ function toAccount(row) {
     plan: row.plan_id || row.plan_name ? {
       planId: row.plan_id,
       name: row.plan_name || row.plan_id,
-      monthlyCredits: null, // 月度总额度只取决于套餐，展示层不再需要
+      // 月度总额度由 planId 查已知套餐映射推算（未知套餐为 null，前端降级为只显示余额）
+      monthlyCredits: planInfo(row.plan_id)?.monthlyCredits ?? null,
     } : null,
     credits: {
       monthlyCredits: row.monthly_left,

@@ -113,6 +113,7 @@
   .window-detail { display: flex; justify-content: space-between; font-size: 11px; color: #8b949e; }
   .window-detail .left { color: #58a6ff; font-weight: 600; }
   .window-detail .warn { color: #d29922; font-weight: 600; }
+  .window-detail .derived { font-style: italic; opacity: .75; }
 
   .acc-foot { font-size: 10px; color: #484f58; margin-top: 8px; }
   .acc-foot .err { color: #f85149; }
@@ -332,7 +333,7 @@ async function addAccount() {
 
 function clearError() { errorEl.classList.remove('show'); errorEl.textContent = ''; }
 
-function windowHtml(name, label, w) {
+function windowHtml(name, label, w, note = '') {
   if (!w || !w.cap) return '';
   const usedPct = w.cap > 0 ? Math.min(w.used / w.cap * 100, 100) : 0;
   const leftPct = 100 - usedPct;
@@ -353,13 +354,28 @@ function windowHtml(name, label, w) {
       <span class="left" style="color:${usedPct >= 90 ? '#da3633' : usedPct >= 75 ? '#d29922' : '#58a6ff'}">剩余 ${fmtCredits(Math.max(w.cap - w.used, 0))}</span>
     </div>
     <div class="window-detail" style="margin-top:2px">
-      <span>${resetText}</span>
+      <span>${resetText}${note ? ` <span class="derived">${note}</span>` : ''}</span>
     </div>
   </div>`;
 }
 
-function detailHtml(a) {
-  const d = a.detail || {};
+// 月度窗口是推算的：上游没有 monthly: {used,cap} 结构，
+// cap 来自 planId 的已知套餐映射，已用 = cap − 剩余，重置点取账期结束。
+// 套餐未知或余额缺失时返回 null，进度条自动隐藏（只显示余额块）。
+function monthlyWindow(a) {
+  const cap = a.plan && a.plan.monthlyCredits;
+  const left = a.credits && a.credits.monthlyCredits;
+  if (cap == null || left == null) return null;
+  const resetAt = (a.detail && a.detail.currentPeriodEnd) || 0;
+  return {
+    used: Math.max(cap - left, 0),
+    cap,
+    exceeded: left <= 0,
+    resetAt,
+  };
+}
+
+function detailHtml(a) {  const d = a.detail || {};
   const u = d.usage;
   if (!u) return '<div class="empty-note">暂无统计数据，刷新后记录。</div>';
   return `
@@ -379,11 +395,12 @@ function accountHtml(a) {
     ? `<span class="badge err" title="${esc(a.lastError)}">上次出错</span>` : '';
   const c = a.credits || {};
   const d = a.detail || {};
-  // 服务端权威限流状态：windowLimits.exceeded 直接指出哪个窗口在拦
+  // 服务端权威限流状态：只认 windowLimits.exceeded（指明哪个窗口在拦）。
+  // limited 字段是"账号受窗口限额约束"的静态属性（未被拦时也为 true），不能当"当前受限"用。
   const blockedMap = { fiveHour: '5小时窗口', weekly: '周限额' };
   const blockedBadge = d.exceeded
     ? `<span class="badge err" title="windowLimits.exceeded">当前被${esc(blockedMap[d.exceeded] || d.exceeded)}拦截</span>`
-    : (d.limited ? '<span class="badge err">当前受限</span>' : '');
+    : '';
   const lowBalBadge = d.belowThreshold
     ? '<span class="badge warn" title="credits.belowThreshold">余额低于预警线</span>' : '';
   const cancelBadge = d.cancelAtPeriodEnd
@@ -414,6 +431,8 @@ function accountHtml(a) {
     </div>
     ${windowHtml('fh-' + a.id, '5 小时滚动', c.fiveHour)}
     ${windowHtml('wk-' + a.id, '周限额', c.weekly)}
+    ${windowHtml('mo-' + a.id, '月度额度', monthlyWindow(a),
+      a.plan && a.plan.monthlyCredits != null ? '上限按套餐推算' : '')}
     ${expanded ? `<div class="acc-detail">${detailHtml(a)}</div>` : ''}
     <div class="acc-foot">
       上次刷新: ${last}${a.lastError ? ' · <span class="err">' + esc(a.lastError) + '</span>' : ''}
