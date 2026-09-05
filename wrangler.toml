@@ -19,7 +19,7 @@ directory = "./public"
 [[d1_databases]]
 binding = "DB"
 database_name = "commandcode-usage"
-database_id = ""
+database_id = "521cbe43-1d9d-4a42-a6ba-f08f7fb6f398"
 
 # 可选：workers.dev 在部分地区被 DNS 污染时，取消注释并改成你的域名
 #（域名需已接入 Cloudflare）：
