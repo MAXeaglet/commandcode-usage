@@ -23,8 +23,8 @@ if [ -z "$DB_ID" ]; then
     echo "✗ 无法获取 database_id，请手动执行: npx wrangler d1 create commandcode-usage"
     exit 1
   fi
-  # 回填（macOS/BSD sed）
-  sed -i '' "s/^database_id = \"\"/database_id = \"$NEW_ID\"/" wrangler.toml
+  # 回填（perl 跨平台：macOS 与 Linux 的 sed -i 语法不同）
+  perl -pi -e "s/^database_id = \"\"/database_id = \"$NEW_ID\"/" wrangler.toml
   echo "✓ database_id = $NEW_ID 已写入 wrangler.toml"
 else
   echo "→ 使用已有 D1: $DB_ID"
