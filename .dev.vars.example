@@ -1,2 +1,9 @@
-API_BASE=http://127.0.0.1:18090
+# 本地开发变量（复制为 .dev.vars；两者均已 gitignore，不会进 git）
+# 生产环境：密码用 npx wrangler secret put ADMIN_TOKEN，无需 API_BASE
+
+# 不设置 API_BASE 时直连真实上游 https://api.commandcode.ai
+# 离线联调：先 python3 mock_server.py 18090，再取消下一行注释
+# API_BASE=http://127.0.0.1:18090
+
+# 本地登录门密码（不设 = 本地面板公开）
 # ADMIN_TOKEN=change-me
