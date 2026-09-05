@@ -77,6 +77,7 @@
     font-size: 11px; color: #58a6ff;
   }
   .badge.err { background: #3d1519; border-color: #da3633; color: #f85149; }
+  .badge.warn { background: #3d2e00; border-color: #d29922; color: #d29922; }
   .acc-masked { font-size: 10px; color: #484f58; font-family: monospace; }
   .acc-actions { display: flex; gap: 4px; }
   .mini-btn {
@@ -115,6 +116,19 @@
 
   .acc-foot { font-size: 10px; color: #484f58; margin-top: 8px; }
   .acc-foot .err { color: #f85149; }
+
+  .acc-detail {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px;
+    margin-top: 10px; padding-top: 8px; border-top: 1px dashed #21262d;
+  }
+  .acc-detail .stat {
+    display: flex; justify-content: space-between; font-size: 11px; color: #8b949e;
+  }
+  .acc-detail .stat b { color: #c9d1d9; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .acc-detail .stat.wide { grid-column: 1 / -1; }
+  .acc-detail .empty-note {
+    grid-column: 1 / -1; text-align: center; font-size: 11px; color: #484f58; padding: 4px 0;
+  }
 
   .empty {
     text-align: center; color: #484f58; font-size: 13px;
@@ -269,6 +283,18 @@ function fmtCredits(v) {
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
+function fmtTokens(v) {
+  if (v == null) return '—';
+  if (v >= 1e8) return (v / 1e8).toFixed(1) + '亿';
+  if (v >= 1e4) return (v / 1e4).toFixed(1) + '万';
+  return String(v);
+}
+
+function fmtPct(v) {
+  if (v == null) return '—';
+  return Number(v).toFixed(1).replace(/\.0$/, '') + '%';
+}
+
 function formatDuration(seconds) {
   if (seconds == null) return '';
   seconds = Math.max(0, Math.floor(seconds));
@@ -332,23 +358,51 @@ function windowHtml(name, label, w) {
   </div>`;
 }
 
+function detailHtml(a) {
+  const d = a.detail || {};
+  const u = d.usage;
+  if (!u) return '<div class="empty-note">暂无统计数据，刷新后记录。</div>';
+  return `
+    <div class="stat"><span>累计请求</span><b>${(u.totalCount ?? 0).toLocaleString()}</b></div>
+    <div class="stat"><span>成功率</span><b>${fmtPct(u.successRate)}</b></div>
+    <div class="stat"><span>成功 / 失败</span><b>${(u.completedCount ?? 0).toLocaleString()} / ${(u.failedCount ?? 0).toLocaleString()}</b></div>
+    <div class="stat"><span>累计消耗</span><b>${fmtCredits(u.totalCredits ?? u.totalCost)} credits</b></div>
+    <div class="stat"><span>Tokens 进 / 出</span><b>${fmtTokens(u.totalTokensIn)} / ${fmtTokens(u.totalTokensOut)}</b></div>
+    <div class="stat"><span>单均成本</span><b>${u.averageCost != null ? u.averageCost.toFixed(4) : '—'}</b></div>
+    ${u.periodBasis ? `<div class="stat wide"><span>统计口径</span><b>${esc(u.periodBasis)}</b></div>` : ''}`;
+}
+
 function accountHtml(a) {
   const planBadge = a.plan && a.plan.name
     ? `<span class="badge">${esc(a.plan.name)}</span>` : '';
   const errBadge = a.lastError
     ? `<span class="badge err" title="${esc(a.lastError)}">上次出错</span>` : '';
   const c = a.credits || {};
+  const d = a.detail || {};
+  // 服务端权威限流状态：windowLimits.exceeded 直接指出哪个窗口在拦
+  const blockedMap = { fiveHour: '5小时窗口', weekly: '周限额' };
+  const blockedBadge = d.exceeded
+    ? `<span class="badge err" title="windowLimits.exceeded">当前被${esc(blockedMap[d.exceeded] || d.exceeded)}拦截</span>`
+    : (d.limited ? '<span class="badge err">当前受限</span>' : '');
+  const lowBalBadge = d.belowThreshold
+    ? '<span class="badge warn" title="credits.belowThreshold">余额低于预警线</span>' : '';
+  const cancelBadge = d.cancelAtPeriodEnd
+    ? '<span class="badge warn" title="cancelAtPeriodEnd">本期后取消</span>' : '';
+  const pendingBadge = d.pendingPhase
+    ? '<span class="badge warn" title="pendingPhase">套餐将变更</span>' : '';
   const last = a.lastChecked ? new Date(a.lastChecked).toLocaleString('zh-CN') : '从未';
+  const expanded = expandedIds.has(a.id);
 
   return `
   <div class="acc-card" id="acc-${a.id}">
     <div class="acc-head">
       <div class="acc-title">
         <span class="acc-label" title="点击修改备注">${esc(a.label || ('#' + a.id))}</span>
-        ${planBadge}${errBadge}
+        ${planBadge}${blockedBadge}${lowBalBadge}${cancelBadge}${pendingBadge}${errBadge}
         <span class="acc-masked">${esc(a.maskedKey)}</span>
       </div>
       <div class="acc-actions">
+        <button class="mini-btn" onclick="toggleDetail(${a.id})">${expanded ? '收起' : '详情'}</button>
         <button class="mini-btn" onclick="refreshOne(${a.id}, this)">刷新</button>
         <button class="mini-btn danger" onclick="removeAccount(${a.id}, this)">删除</button>
       </div>
@@ -360,14 +414,23 @@ function accountHtml(a) {
     </div>
     ${windowHtml('fh-' + a.id, '5 小时滚动', c.fiveHour)}
     ${windowHtml('wk-' + a.id, '周限额', c.weekly)}
+    ${expanded ? `<div class="acc-detail">${detailHtml(a)}</div>` : ''}
     <div class="acc-foot">
       上次刷新: ${last}${a.lastError ? ' · <span class="err">' + esc(a.lastError) + '</span>' : ''}
     </div>
   </div>`;
 }
 
+let currentAccounts = [];
+const expandedIds = new Set();
+window.toggleDetail = function(id) {
+  expandedIds.has(id) ? expandedIds.delete(id) : expandedIds.add(id);
+  renderList(currentAccounts);
+};
+
 function renderList(accounts) {
   loadingEl.style.display = 'none';
+  currentAccounts = accounts;
   if (!accounts.length) {
     listEl.innerHTML = '<div class="empty">还没有账号。在上方填入 API 密钥添加第一个。</div>';
     $('toolbar').style.display = 'none';

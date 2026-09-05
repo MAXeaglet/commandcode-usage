@@ -27,41 +27,57 @@ def credits(shape="ok"):
     if shape == "exhausted":
         five = {"used": 5.0, "cap": 5.0, "exceeded": True,
                 "resetAt": NOW_MS + 42 * 60 * 1000}
+        limited, exceeded = True, "fiveHour"
     elif shape == "snake":
         five = {"used": 1.2, "cap": 5.0, "exceeded": False,
                 "reset_at": NOW_MS + 3600 * 1000}
+        limited, exceeded = False, None
     else:
         five = {"used": 1.23, "cap": 5.0, "exceeded": False,
                 "resetAt": NOW_MS + 3600 * 1000}
+        limited, exceeded = False, None
     weekly = {"used": 12.5, "cap": 40.0, "exceeded": False,
               "resetAt": NOW_MS + 3 * 86400 * 1000}
+    monthly, below = (0.5, True) if shape == "lowbal" else (18.5, False)
     return {
-        "credits": {"monthlyCredits": 18.5, "purchasedCredits": 0,
-                    "freeCredits": 2.0, "planId": "individual-goat"},
-        "windowLimits": {"fiveHour": five, "weekly": weekly},
+        "credits": {"monthlyCredits": monthly, "purchasedCredits": 0,
+                    "freeCredits": 2.0, "planId": "individual-goat",
+                    "belowThreshold": below, "creditThreshold": 1.0},
+        "windowLimits": {"limited": limited, "exceeded": exceeded,
+                         "fiveHour": five, "weekly": weekly},
     }
 
-SUBSCRIPTIONS = {
-    "success": True,
-    "data": {
-        "planId": "individual-goat",
-        "status": "active",
-        "currentPeriodEnd": NOW_MS + 12 * 86400 * 1000,
-    },
-}
+
+def subscriptions(shape="ok"):
+    return {
+        "success": True,
+        "data": {
+            "planId": "individual-goat",
+            "status": "active",
+            "currentPeriodStart": NOW_MS - 18 * 86400 * 1000,
+            "currentPeriodEnd": NOW_MS + 12 * 86400 * 1000,
+            "cancelAtPeriodEnd": shape == "cancel",
+            "pendingPhase": None,
+        },
+    }
+
 
 USAGE = {
-    "totalCount": 421, "totalCost": 51.4, "successRate": 0.97,
-    "completedCount": 408, "failedCount": 13,
-    "totalTokensIn": 8_100_000, "totalTokensOut": 1_200_000,
-    "totalCredits": 51.5, "periodBasis": "billing-period",
+    "totalCount": 1883, "totalCost": 6.0011675234,
+    "averageCost": 0.0031870247070631963, "successRate": 100,
+    "completedCount": 1883, "failedCount": 0,
+    "totalTokensIn": 487_592_979, "totalTokensOut": 1_210_434,
+    "totalTokens": 488_803_413,
+    "totalCredits": 6.001167523399999, "totalFreeCredits": 0,
+    "totalMonthlyCredits": 6.001167523399999, "totalPurchasedCredits": 0,
+    "periodBasis": "billing-period",
 }
 
 
 # 密钥里带 shape 名即选中该形态（方便联调）：sk-exhausted-… / sk-snake-… 等
 def shape_for_key(auth):
     key = auth or ""
-    for s in ("exhausted", "partial", "snake", "garbage", "badkey"):
+    for s in ("exhausted", "partial", "snake", "garbage", "badkey", "cancel", "lowbal"):
         if s in key.lower():
             return s
     return "ok"
@@ -95,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
             if shape == "partial":
                 self._send(500, {"error": "internal"})
                 return
-            self._send(200, SUBSCRIPTIONS)
+            self._send(200, subscriptions(shape))
         elif path == "/alpha/usage/summary":
             if shape == "partial":
                 self._send(500, {"error": "internal"})
@@ -119,6 +135,6 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 18090
     print(f"mock listening on 127.0.0.1:{port} "
-          f"(shape by key: sk-exhausted-… / sk-partial-… / sk-snake-… / "
-          f"sk-garbage-… / sk-badkey-… / 其他=正常)", flush=True)
+          f"(shape by key: sk-exhausted-… / sk-partial-… / sk-snake-… / sk-garbage-… / "
+          f"sk-badkey-… / sk-cancel-… / sk-lowbal-… / 其他=正常)", flush=True)
     HTTPServer(("127.0.0.1", port), Handler).serve_forever()

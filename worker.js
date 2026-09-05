@@ -159,6 +159,11 @@ async function fetchReport(base, key) {
         monthlyCredits: num(credits?.monthlyCredits) ?? num(credits?.monthly_credits) ?? null,
         purchasedCredits: num(credits?.purchasedCredits) ?? num(credits?.purchased_credits) ?? null,
         freeCredits: num(credits?.freeCredits) ?? num(credits?.free_credits) ?? null,
+        // 账号整体限流状态：exceeded 直接指出是哪个窗口在拦（"fiveHour"/"weekly"）
+        limited: wl?.limited === true,
+        exceeded: str(wl?.exceeded) ?? '',
+        belowThreshold: credits?.belowThreshold === true,
+        creditThreshold: num(credits?.creditThreshold) ?? null,
         fiveHour: normalizeWindow(pickWindow(wl || {}, ['fiveHour', 'five_hour', 'rolling5h', '5h'])),
         weekly: normalizeWindow(pickWindow(wl || {}, ['weekly', 'week'])),
       };
@@ -184,6 +189,9 @@ async function fetchReport(base, key) {
         status: str(data?.status) ?? '',
         monthlyCredits: info ? info.monthlyCredits : null,
         currentPeriodEnd: toEpochMs(data?.currentPeriodEnd ?? data?.current_period_end) ?? 0,
+        cancelAtPeriodEnd: data?.cancelAtPeriodEnd === true,
+        currentPeriodStart: toEpochMs(data?.currentPeriodStart ?? data?.current_period_start) ?? 0,
+        pendingPhase: data?.pendingPhase ?? null,
       };
     }
   } catch (e) {
@@ -193,15 +201,31 @@ async function fetchReport(base, key) {
       report.plan = {
         planId, name: info?.name ?? planId, status: '',
         monthlyCredits: info ? info.monthlyCredits : null, currentPeriodEnd: 0,
+        cancelAtPeriodEnd: false, currentPeriodStart: 0, pendingPhase: null,
       };
     }
     failures.push('billing/subscriptions: ' + e.message);
   }
   delete report._planIdFallback;
 
-  // usage/summary 仅用于连通性/密钥校验，不再入缓存表（面板用不到累计值）
+  // usage/summary → 累计统计（按 periodBasis 口径，通常是账期内）
   try {
-    await getJson(base, '/alpha/usage/summary', key);
+    const us = await getJson(base, '/alpha/usage/summary', key);
+    const u = isRecord(us.data) ? us.data : us;
+    if (isRecord(u)) {
+      report.usage = {
+        totalCount: num(u.totalCount) ?? 0,
+        totalCost: num(u.totalCost) ?? 0,
+        averageCost: num(u.averageCost) ?? null,
+        successRate: num(u.successRate) ?? 0,
+        completedCount: num(u.completedCount) ?? 0,
+        failedCount: num(u.failedCount) ?? 0,
+        totalTokensIn: num(u.totalTokensIn) ?? 0,
+        totalTokensOut: num(u.totalTokensOut) ?? 0,
+        totalCredits: num(u.totalCredits) ?? 0,
+        periodBasis: str(u.periodBasis) ?? '',
+      };
+    }
   } catch (e) {
     failures.push('usage/summary: ' + e.message);
   }
@@ -239,7 +263,8 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS accounts (
   weekly_reset INTEGER NOT NULL DEFAULT 0,
   last_checked INTEGER NOT NULL DEFAULT 0,
   last_error TEXT NOT NULL DEFAULT '',
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  detail TEXT
 )`;
 
 let schemaReady = false;
@@ -249,7 +274,32 @@ async function ensureSchema(db) {
     db.prepare(SCHEMA),
     db.prepare('CREATE INDEX IF NOT EXISTS idx_accounts_key ON accounts(api_key)'),
   ]);
+  // 老库迁移：detail 列存扩展统计 JSON（usage 汇总 / 限流 / 预警 / 订阅附加字段）
+  try {
+    await db.prepare('ALTER TABLE accounts ADD COLUMN detail TEXT').run();
+  } catch (e) { /* 列已存在 */ }
   schemaReady = true;
+}
+
+// 从聚合报告提取长尾字段，序列化进 detail 列
+function buildDetail(report) {
+  const c = report.credits || {};
+  const p = report.plan || {};
+  return JSON.stringify({
+    usage: report.usage || null,
+    limited: c.limited ?? null,
+    exceeded: c.exceeded || null,
+    belowThreshold: c.belowThreshold ?? null,
+    creditThreshold: c.creditThreshold ?? null,
+    cancelAtPeriodEnd: p.cancelAtPeriodEnd ?? null,
+    currentPeriodStart: p.currentPeriodStart ?? null,
+    pendingPhase: p.pendingPhase ?? null,
+  });
+}
+
+function parseDetail(raw) {
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { return null; }
 }
 
 function maskKey(key) {
@@ -284,6 +334,7 @@ function toAccount(row) {
     },
     lastChecked: row.last_checked || 0,
     lastError: row.last_error || '',
+    detail: parseDetail(row.detail),
   };
 }
 
@@ -308,7 +359,7 @@ async function refreshAccount(db, base, row) {
        monthly_left = ?, purchased = ?, free = ?,
        five_hour_used = ?, five_hour_cap = ?, five_hour_exceeded = ?, five_hour_reset = ?,
        weekly_used = ?, weekly_cap = ?, weekly_exceeded = ?, weekly_reset = ?,
-       last_checked = ?, last_error = ''
+       last_checked = ?, last_error = '', detail = ?
      WHERE id = ?`
   ).bind(
     upd.account?.userName || row.user_name,
@@ -316,7 +367,7 @@ async function refreshAccount(db, base, row) {
     c.monthlyCredits ?? null, c.purchasedCredits ?? null, c.freeCredits ?? null,
     fh.used ?? null, fh.cap ?? null, fh.exceeded ? 1 : 0, fh.resetAt ?? 0,
     wk.used ?? null, wk.cap ?? null, wk.exceeded ? 1 : 0, wk.resetAt ?? 0,
-    Date.now(), row.id,
+    Date.now(), buildDetail(upd), row.id,
   ).run();
   const fresh = await db.prepare('SELECT * FROM accounts WHERE id = ?').bind(row.id).first();
   return toAccount(fresh);
@@ -404,15 +455,15 @@ export default {
         `INSERT INTO accounts
          (api_key, label, user_name, plan_id, plan_name, monthly_left, purchased, free,
           five_hour_used, five_hour_cap, five_hour_exceeded, five_hour_reset,
-          weekly_used, weekly_cap, weekly_exceeded, weekly_reset, last_checked, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          weekly_used, weekly_cap, weekly_exceeded, weekly_reset, last_checked, created_at, detail)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         key, finalLabel, report.account?.userName || '',
         report.plan?.planId || '', report.plan?.name || '',
         c.monthlyCredits ?? null, c.purchasedCredits ?? null, c.freeCredits ?? null,
         fh.used ?? null, fh.cap ?? null, fh.exceeded ? 1 : 0, fh.resetAt ?? 0,
         wk.used ?? null, wk.cap ?? null, wk.exceeded ? 1 : 0, wk.resetAt ?? 0,
-        Date.now(), Date.now(),
+        Date.now(), Date.now(), buildDetail(report),
       ).run();
       const row = await env.DB.prepare('SELECT * FROM accounts WHERE api_key = ?').bind(key).first();
       return json({ account: toAccount(row) }, 201);
