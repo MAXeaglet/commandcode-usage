@@ -14,7 +14,7 @@ Run: python3 mock_server.py [port]   (default 18090)
 import json
 import sys
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 NOW_MS = int(time.time() * 1000)
 
@@ -84,6 +84,10 @@ def shape_for_key(auth):
 
 
 class Handler(BaseHTTPRequestHandler):
+    # 必须 HTTP/1.1 + 连接复用：Worker 的 fetch 会复用 keep-alive 连接，
+    # 默认的 HTTP/1.0（每次响应即断）会让第二次请求撞在已关闭的 socket 上而失败。
+    protocol_version = "HTTP/1.1"
+
     def do_GET(self):
         if not self.headers.get("Authorization"):
             self._send(401, {"error": "unauthorized"})
@@ -137,4 +141,5 @@ if __name__ == "__main__":
     print(f"mock listening on 127.0.0.1:{port} "
           f"(shape by key: sk-exhausted-… / sk-partial-… / sk-snake-… / sk-garbage-… / "
           f"sk-badkey-… / sk-cancel-… / sk-lowbal-… / 其他=正常)", flush=True)
-    HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    # 多线程：keep-alive 下空闲连接会占住单线程服务器
+    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
